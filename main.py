@@ -16,11 +16,11 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 CHANNEL_ID    = os.getenv("CHANNEL_ID", "").strip()
 
-# Webhook #1 (Pflicht)
+# Webhook #1
 ALTRADY_WEBHOOK_URL   = os.getenv("ALTRADY_WEBHOOK_URL", "").strip()
 ALTRADY_API_KEY       = os.getenv("ALTRADY_API_KEY", "").strip()
 ALTRADY_API_SECRET    = os.getenv("ALTRADY_API_SECRET", "").strip()
-ALTRADY_EXCHANGE      = os.getenv("ALTRADY_EXCHANGE", "BYBIF").strip()  # z.B. BYBIF, BIFU, BINUSDM, etc.
+ALTRADY_EXCHANGE      = os.getenv("ALTRADY_EXCHANGE", "BYBIF").strip()   # z.B. BYBIF (= Bybit Futures)
 
 # Optionaler Webhook #2 (eigene Creds/Exchange)
 ALTRADY_WEBHOOK_URL_2 = os.getenv("ALTRADY_WEBHOOK_URL_2", "").strip()
@@ -31,21 +31,22 @@ ALTRADY_EXCHANGE_2    = os.getenv("ALTRADY_EXCHANGE_2", "").strip()
 QUOTE = os.getenv("QUOTE", "USDT").strip().upper()
 
 # Hebel
-FIXED_LEVERAGE      = int(os.getenv("FIXED_LEVERAGE", "5"))
+FIXED_LEVERAGE = int(os.getenv("FIXED_LEVERAGE", "5"))
 
-# TP-Split (5 TPs) + Runner (via SL/Trail abgesichert)
-TP1_PCT             = float(os.getenv("TP1_PCT", "20"))
-TP2_PCT             = float(os.getenv("TP2_PCT", "25"))
-TP3_PCT             = float(os.getenv("TP3_PCT", "25"))
-TP4_PCT             = float(os.getenv("TP4_PCT", "20"))
-TP5_PCT             = float(os.getenv("TP5_PCT", "10"))
-RUNNER_PCT          = float(os.getenv("RUNNER_PCT", "10"))   # zusätzlich zum obigen Split oder separat? -> separat; Summe kann >100 sein, Altrady cappt intern
+# ======= TP-Splits (5 TPs) + Runner =======
+TP1_PCT = float(os.getenv("TP1_PCT", "22"))
+TP2_PCT = float(os.getenv("TP2_PCT", "20"))
+TP3_PCT = float(os.getenv("TP3_PCT", "20"))
+TP4_PCT = float(os.getenv("TP4_PCT", "18"))
+TP5_PCT = float(os.getenv("TP5_PCT", "10"))
+RUNNER_PCT = float(os.getenv("RUNNER_PCT", "10"))
 
 # Trailing für Runner
-RUNNER_TRAILING_DIST = float(os.getenv("RUNNER_TRAILING_DIST", "1.0"))
+RUNNER_TRAILING_DIST = float(os.getenv("RUNNER_TRAILING_DIST", "1.5"))
 RUNNER_TP_MULTIPLIER = float(os.getenv("RUNNER_TP_MULTIPLIER", "1.5"))
+USE_RUNNER_AFTER_TP5 = os.getenv("USE_RUNNER_AFTER_TP5", "true").lower() == "true"
 
-# Stop-Loss Modus
+# ======= Stop-Loss Modus (Fallback) =======
 # DCA1 (Default): SL = Distanz Entry->DCA1 + SL_BUFFER_PCT
 # DCA2:            SL = Distanz Entry->DCA2 + SL_BUFFER_PCT
 # FIXED:           SL = STOP_FIXED_PERCENTAGE (direkt, in %)
@@ -54,25 +55,30 @@ BASE_STOP_MODE         = os.getenv("BASE_STOP_MODE", "DCA1").strip().upper()  # 
 SL_BUFFER_PCT          = float(os.getenv("SL_BUFFER_PCT", "4.0"))
 STOP_FIXED_PERCENTAGE  = float(os.getenv("STOP_FIXED_PERCENTAGE", "9.0"))
 
+# ======= Signal-SL Handling =======
+RESPECT_SIGNAL_SL         = os.getenv("RESPECT_SIGNAL_SL", "true").lower() == "true"
+NO_DCA_IF_SIGNAL_SL       = os.getenv("NO_DCA_IF_SIGNAL_SL", "true").lower() == "true"
+ALLOW_INVERTED_SIGNAL_SL  = os.getenv("ALLOW_INVERTED_SIGNAL_SL", "false").lower() == "true"
+
 # DCA Größen (% der Start-Positionsgröße)
-DCA1_QTY_PCT        = float(os.getenv("DCA1_QTY_PCT", "150"))
-DCA2_QTY_PCT        = float(os.getenv("DCA2_QTY_PCT", "0"))
-DCA3_QTY_PCT        = float(os.getenv("DCA3_QTY_PCT", "0"))
+DCA1_QTY_PCT = float(os.getenv("DCA1_QTY_PCT", "150"))  # 1.5x vom Entry-Order-Volumen
+DCA2_QTY_PCT = float(os.getenv("DCA2_QTY_PCT", "0"))
+DCA3_QTY_PCT = float(os.getenv("DCA3_QTY_PCT", "0"))
 
 # Fallback DCA-Distanzen (vom Entry, in %)
-DCA1_DIST_PCT       = float(os.getenv("DCA1_DIST_PCT", "5"))
-DCA2_DIST_PCT       = float(os.getenv("DCA2_DIST_PCT", "10"))
-DCA3_DIST_PCT       = float(os.getenv("DCA3_DIST_PCT", "20"))
+DCA1_DIST_PCT = float(os.getenv("DCA1_DIST_PCT", "5"))
+DCA2_DIST_PCT = float(os.getenv("DCA2_DIST_PCT", "10"))
+DCA3_DIST_PCT = float(os.getenv("DCA3_DIST_PCT", "20"))
 
 # Limit-Order Ablauf (Zeit)
-ENTRY_EXPIRATION_MIN= int(os.getenv("ENTRY_EXPIRATION_MIN", "180"))
+ENTRY_EXPIRATION_MIN = int(os.getenv("ENTRY_EXPIRATION_MIN", "180"))
 
 # Entry-Condition
-ENTRY_WAIT_MINUTES         = int(os.getenv("ENTRY_WAIT_MINUTES", "0"))             # 0 = keine Zeit-Bedingung
-ENTRY_TRIGGER_BUFFER_PCT   = float(os.getenv("ENTRY_TRIGGER_BUFFER_PCT", "0.0"))   # Trigger-Puffer
-ENTRY_EXPIRATION_PRICE_PCT = float(os.getenv("ENTRY_EXPIRATION_PRICE_PCT", "0.0")) # vorzeitiges Expire nach Preis
+ENTRY_WAIT_MINUTES         = int(os.getenv("ENTRY_WAIT_MINUTES", "0"))           # 0 = keine Zeit-Bedingung
+ENTRY_TRIGGER_BUFFER_PCT   = float(os.getenv("ENTRY_TRIGGER_BUFFER_PCT", "0.0")) # Trigger-Puffer
+ENTRY_EXPIRATION_PRICE_PCT = float(os.getenv("ENTRY_EXPIRATION_PRICE_PCT", "0.0"))
 
-TEST_MODE           = os.getenv("TEST_MODE", "false").lower() == "true"
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 # Poll-Steuerung
 POLL_BASE_SECONDS   = int(os.getenv("POLL_BASE_SECONDS", "60"))
@@ -83,7 +89,7 @@ DISCORD_FETCH_LIMIT = int(os.getenv("DISCORD_FETCH_LIMIT", "50"))
 STATE_FILE          = Path(os.getenv("STATE_FILE", "state.json"))
 
 # Cooldown nach Order-Open
-COOLDOWN_SECONDS    = int(os.getenv("COOLDOWN_SECONDS", "0"))  # 0 = aus
+COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "0"))
 
 # =========================
 # Startup Checks
@@ -98,7 +104,7 @@ if not ALTRADY_API_KEY or not ALTRADY_API_SECRET:
 
 HEADERS = {
     "Authorization": DISCORD_TOKEN,
-    "User-Agent": "DiscordToAltrady/2.6-multiwebhook"
+    "User-Agent": "DiscordToAltrady/2.6-fiveTP-signalSL"
 }
 
 # =========================
@@ -183,8 +189,10 @@ def message_text(m: dict) -> str:
             continue
         if e.get("title"): parts.append(str(e.get("title")))
         if e.get("description"): parts.append(str(e.get("description")))
-        for f in (e.get("fields") or []):
-            if not isinstance(f, dict): continue
+        fields = e.get("fields") or []
+        for f in fields:
+            if not isinstance(f, dict):
+                continue
             n = f.get("name") or ""
             v = f.get("value") or ""
             if n: parts.append(str(n))
@@ -214,6 +222,8 @@ DCA1_LINE = re.compile(r"\bDCA\s*#?\s*1\s*:\s*\$?\s*"+NUM, re.I)
 DCA2_LINE = re.compile(r"\bDCA\s*#?\s*2\s*:\s*\$?\s*"+NUM, re.I)
 DCA3_LINE = re.compile(r"\bDCA\s*#?\s*3\s*:\s*\$?\s*"+NUM, re.I)
 
+SL_LINE   = re.compile(r"\bSL\s*:\s*\$?\s*"+NUM, re.I)
+
 def find_base_side(txt: str):
     mh = HDR_SLASH_PAIR.search(txt)
     if mh:
@@ -227,27 +237,26 @@ def find_base_side(txt: str):
     return None, None
 
 def find_entry(txt: str) -> Optional[float]:
-    # Nimm die letzte gefundene Entry-Zahl (deckt "Entry: $x", "Enter on Trigger", "ENTRY\n$x" und CMP-Zeilen ab)
-    candidates = []
     for rx in (ENTER_ON_TRIGGER, ENTRY_COLON, ENTRY_SECTION):
-        candidates += [to_price(m.group(1)) for m in rx.finditer(txt)]
-    return candidates[-1] if candidates else None
+        m = rx.search(txt)
+        if m:
+            return to_price(m.group(1))
+    return None
 
-def find_tp_dca(txt: str):
-    # Bis zu 5 TPs; TP1-TP3 müssen vorhanden sein
+def _grab_opt(rx, txt):
+    m = rx.search(txt)
+    return to_price(m.group(1)) if m else None
+
+def find_tp_dca_sl(txt: str):
     tps = []
     for rx in (TP1_LINE, TP2_LINE, TP3_LINE, TP4_LINE, TP5_LINE):
         m = rx.search(txt)
         tps.append(to_price(m.group(1)) if m else None)
-
-    if any(v is None for v in tps[:3]):
-        return None, None
-
-    dcas = []
-    for rx in (DCA1_LINE, DCA2_LINE, DCA3_LINE):
-        m = rx.search(txt)
-        dcas.append(to_price(m.group(1)) if m else None)
-    return tps, dcas
+    d1 = _grab_opt(DCA1_LINE, txt)
+    d2 = _grab_opt(DCA2_LINE, txt)
+    d3 = _grab_opt(DCA3_LINE, txt)
+    sl = _grab_opt(SL_LINE, txt)
+    return tps, [d1, d2, d3], sl
 
 def backfill_dcas_if_missing(side: str, entry: float, dcas: list) -> list:
     d1, d2, d3 = dcas
@@ -259,11 +268,17 @@ def backfill_dcas_if_missing(side: str, entry: float, dcas: list) -> list:
         d3 = entry * (1 + DCA3_DIST_PCT/100.0) if side=="short" else entry * (1 - DCA3_DIST_PCT/100.0)
     return [d1, d2, d3]
 
-def plausible(side: str, entry: float, tp1: float, tp2: float, tp3: float, d1: float, d2: float, d3: float) -> bool:
+def plausible(side: str, entry: float, tps: list, d1: float, d2: float, d3: float) -> bool:
+    tp_ok = all(tp is None or (tp>entry if side=="long" else tp<entry) for tp in tps if tp is not None)
     if side == "long":
-        return (tp1>entry and tp2>entry and tp3>entry and d1<entry and d2<entry and d3<entry)
+        return tp_ok and d1<entry and d2<entry and d3<entry
     else:
-        return (tp1<entry and tp2<entry and tp3<entry and d1>entry and d2>entry and d3>entry)
+        return tp_ok and d1>entry and d2>entry and d3>entry
+
+def _sl_plausible(side: str, entry: float, sl: float) -> bool:
+    if sl is None:
+        return True
+    return (sl < entry) if side == "long" else (sl > entry)
 
 def parse_signal_from_text(txt: str):
     base, side = find_base_side(txt)
@@ -273,20 +288,24 @@ def parse_signal_from_text(txt: str):
     if entry is None:
         return None
 
-    res = find_tp_dca(txt)
-    if not res:
+    tps, dcas, sl_price = find_tp_dca_sl(txt)
+    # Mindestens TP1-TP3 müssen existieren
+    if any(tp is None for tp in tps[:3]):
         return None
-    tps, dcas = res
-    tp1, tp2, tp3, tp4, tp5 = (tps + [None, None])[:5]
+
     d1, d2, d3 = backfill_dcas_if_missing(side, entry, dcas)
 
-    if not plausible(side, entry, tp1, tp2, tp3, d1, d2, d3):
+    if not plausible(side, entry, tps, d1, d2, d3):
         return None
+
+    if sl_price is not None and not _sl_plausible(side, entry, sl_price) and not ALLOW_INVERTED_SIGNAL_SL:
+        sl_price = None  # unlogischen SL ignorieren
 
     return {
         "base": base, "side": side, "entry": entry,
-        "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4, "tp5": tp5,
-        "dca1": d1, "dca2": d2, "dca3": d3
+        "tp1": tps[0], "tp2": tps[1], "tp3": tps[2], "tp4": tps[3], "tp5": tps[4],
+        "dca1": d1, "dca2": d2, "dca3": d3,
+        "sl_price": sl_price
     }
 
 # =========================
@@ -299,21 +318,27 @@ def _compute_stop_percentage(entry: float, d1: float, d2: float) -> float:
     mode = BASE_STOP_MODE
     if mode == "FIXED":
         return float(STOP_FIXED_PERCENTAGE)
-    anchor_price = d2 if (mode == "DCA2" and d2 is not None) else d1
+    anchor_price = d1
+    if mode == "DCA2" and d2 is not None:
+        anchor_price = d2
     anchor_dist = abs((anchor_price - entry) / entry) * 100.0
     return anchor_dist + SL_BUFFER_PCT
 
 def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secret: str) -> dict:
     base, side, entry = sig["base"], sig["side"], sig["entry"]
-    tp1, tp2, tp3, tp4, tp5 = sig["tp1"], sig["tp2"], sig["tp3"], sig.get("tp4"), sig.get("tp5")
+    tp1, tp2, tp3, tp4, tp5 = sig["tp1"], sig["tp2"], sig["tp3"], sig["tp4"], sig["tp5"]
     d1, d2, d3 = sig["dca1"], sig["dca2"], sig["dca3"]
+    sl_price = sig.get("sl_price")
 
     symbol = f"{exchange}_{QUOTE}_{base}"
 
-    # Stop-Loss (in %)
-    stop_percentage = _compute_stop_percentage(entry, d1, d2)
+    # Stop-Loss (%)
+    if RESPECT_SIGNAL_SL and sl_price is not None:
+        stop_percentage = abs((sl_price - entry) / entry) * 100.0
+    else:
+        stop_percentage = _compute_stop_percentage(entry, d1, d2)
 
-    # Entry-Trigger bleibt Preis-basiert
+    # Entry-Trigger
     if side == "long":
         trigger_price = entry * (1.0 - ENTRY_TRIGGER_BUFFER_PCT/100.0)
         expire_price  = entry * (1.0 - ENTRY_EXPIRATION_PRICE_PCT/100.0) if ENTRY_EXPIRATION_PRICE_PCT > 0 else None
@@ -321,45 +346,41 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
         trigger_price = entry * (1.0 + ENTRY_TRIGGER_BUFFER_PCT/100.0)
         expire_price  = entry * (1.0 + ENTRY_EXPIRATION_PRICE_PCT/100.0) if ENTRY_EXPIRATION_PRICE_PCT > 0 else None
 
-    # Take Profits als Prozent (folgen dem Avg-Entry nach DCA)
-    tp1_pct = _percent_from_entry(entry, tp1) if tp1 is not None else None
-    tp2_pct = _percent_from_entry(entry, tp2) if tp2 is not None else None
-    tp3_pct = _percent_from_entry(entry, tp3) if tp3 is not None else None
-    tp4_pct = _percent_from_entry(entry, tp4) if tp4 is not None else None
-    tp5_pct = _percent_from_entry(entry, tp5) if tp5 is not None else None
+    # TPs (in % vom Entry, Altrady folgt Avg-Entry nach DCA)
+    def pct_or_none(tp):
+        return _percent_from_entry(entry, tp) if tp is not None else None
+
+    tp_pct = [pct_or_none(tp) for tp in (tp1, tp2, tp3, tp4, tp5)]
+    tp_split = [TP1_PCT, TP2_PCT, TP3_PCT, TP4_PCT, TP5_PCT]
 
     take_profits = []
-    if tp1_pct is not None:
-        take_profits.append({"price_percentage": float(f"{tp1_pct:.6f}"), "position_percentage": TP1_PCT})
-    if tp2_pct is not None:
-        take_profits.append({"price_percentage": float(f"{tp2_pct:.6f}"), "position_percentage": TP2_PCT})
-    if tp3_pct is not None:
-        take_profits.append({"price_percentage": float(f"{tp3_pct:.6f}"), "position_percentage": TP3_PCT})
-    if tp4_pct is not None:
-        take_profits.append({"price_percentage": float(f"{tp4_pct:.6f}"), "position_percentage": TP4_PCT})
-    if tp5_pct is not None:
-        take_profits.append({"price_percentage": float(f"{tp5_pct:.6f}"), "position_percentage": TP5_PCT})
+    for pct, split in zip(tp_pct, tp_split):
+        if pct is not None and split > 0:
+            take_profits.append({"price_percentage": float(f"{pct:.6f}"), "position_percentage": split})
 
-    # Runner (10 %) – Anker TP5 falls vorhanden, sonst TP3
+    # Runner (optional, ab TP5 – sonst TP5 = Full Close)
     runner_pct = None
-    anchor_for_runner = tp5 if tp5 is not None else tp3
-    if RUNNER_PCT > 0 and anchor_for_runner is not None:
-        runner_price = anchor_for_runner * RUNNER_TP_MULTIPLIER if side == "long" else anchor_for_runner / RUNNER_TP_MULTIPLIER
-        runner_pct = _percent_from_entry(entry, runner_price)
-        take_profits.append({
-            "price_percentage": float(f"{runner_pct:.6f}"),
-            "position_percentage": RUNNER_PCT,
-            "trailing_distance": RUNNER_TRAILING_DIST
-        })
+    if USE_RUNNER_AFTER_TP5 and RUNNER_PCT > 0:
+        anchor = tp5 if tp5 is not None else tp3  # Fallback, falls kein TP5 geliefert
+        if anchor is not None:
+            runner_price = anchor * RUNNER_TP_MULTIPLIER if side == "long" else anchor / RUNNER_TP_MULTIPLIER
+            runner_pct = _percent_from_entry(entry, runner_price)
+            take_profits.append({
+                "price_percentage": float(f"{runner_pct:.6f}"),
+                "position_percentage": RUNNER_PCT,
+                "trailing_distance": RUNNER_TRAILING_DIST
+            })
 
-    # DCAs als fixe Preislevels
+    # DCAs (deaktivieren, wenn expliziter SL + Flag gesetzt)
     dca_orders = []
-    if DCA1_QTY_PCT > 0 and d1 is not None:
-        dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
-    if DCA2_QTY_PCT > 0 and d2 is not None:
-        dca_orders.append({"price": d2, "quantity_percentage": DCA2_QTY_PCT})
-    if DCA3_QTY_PCT > 0 and d3 is not None:
-        dca_orders.append({"price": d3, "quantity_percentage": DCA3_QTY_PCT})
+    use_dcas = not (RESPECT_SIGNAL_SL and sl_price is not None and NO_DCA_IF_SIGNAL_SL)
+    if use_dcas:
+        if DCA1_QTY_PCT > 0 and d1 is not None:
+            dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
+        if DCA2_QTY_PCT > 0 and d2 is not None:
+            dca_orders.append({"price": d2, "quantity_percentage": DCA2_QTY_PCT})
+        if DCA3_QTY_PCT > 0 and d3 is not None:
+            dca_orders.append({"price": d3, "quantity_percentage": DCA3_QTY_PCT})
 
     payload = {
         "api_key": api_key,
@@ -394,13 +415,14 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     # Kurz-Log
     print(f"\n📊 {base} {side.upper()}  |  {symbol}  |  Entry {entry}")
     print(f"   Trigger @ {trigger_price:.6f}  |  Expire in {ENTRY_EXPIRATION_MIN} min" + (f" oder Preis {expire_price:.6f}" if expire_price else ""))
-    print(f"   SL-Modus: {BASE_STOP_MODE}  → {stop_percentage:.2f}% vom Entry")
-    if RUNNER_PCT > 0 and runner_pct is not None:
+    print(f"   SL-Modus: {'SignalSL' if (RESPECT_SIGNAL_SL and sl_price is not None) else BASE_STOP_MODE}  → {stop_percentage:.2f}% relativ zum Entry")
+    if runner_pct is not None:
         print(f"   Runner% ≈ {runner_pct:.6f}  |  Trail {RUNNER_TRAILING_DIST:.2f}%")
-    if take_profits:
-        tp_str = ", ".join([f"{o['position_percentage']}% @ {o['price_percentage']:.4f}%" for o in take_profits if 'trailing_distance' not in o])
-        print(f"   TPs: {tp_str}")
-    print("   DCAs: " + (", ".join([f"{o['quantity_percentage']}%@{o['price']:.6f}" for o in dca_orders]) if dca_orders else "–"))
+    if dca_orders:
+        dca_str = ", ".join([f"{o['quantity_percentage']}%@{o['price']:.6f}" for o in dca_orders])
+    else:
+        dca_str = "–"
+    print("   DCAs: " + dca_str)
     return payload
 
 # =========================
@@ -450,14 +472,14 @@ def post_to_all_webhooks(payloads_and_urls: List[Tuple[str, dict]]):
 # =========================
 def main():
     print("="*50)
-    print("🚀 Discord → Altrady Bot v2.6 (5 TPs, Runner, SL@DCA1 default)")
+    print("🚀 Discord → Altrady Bot v2.6 (5 TPs, optional Runner@TP5, Signal-SL Support)")
     print("="*50)
     print(f"Exchange #1: {ALTRADY_EXCHANGE} | Leverage: {FIXED_LEVERAGE}x")
     if ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2:
         print(f"Exchange #2: {ALTRADY_EXCHANGE_2}")
-    print(f"TP-Splits: {TP1_PCT}/{TP2_PCT}/{TP3_PCT}/{TP4_PCT}/{TP5_PCT}% + Runner {RUNNER_PCT}%")
+    print(f"TP-Splits: {TP1_PCT}/{TP2_PCT}/{TP3_PCT}/{TP4_PCT}/{TP5_PCT}% + Runner {RUNNER_PCT}% (USE_RUNNER_AFTER_TP5={USE_RUNNER_AFTER_TP5})")
     print(f"DCAs: D1 {DCA1_QTY_PCT}%, D2 {DCA2_QTY_PCT}%, D3 {DCA3_QTY_PCT}%")
-    print(f"Stop: {BASE_STOP_MODE} + Buffer {SL_BUFFER_PCT}%" + (f" | FIXED={STOP_FIXED_PERCENTAGE}%" if BASE_STOP_MODE=='FIXED' else ""))
+    print(f"Stop: {BASE_STOP_MODE} + Buffer {SL_BUFFER_PCT}%  | FIXED={STOP_FIXED_PERCENTAGE}% | RespectSignalSL={RESPECT_SIGNAL_SL}, NoDCAifSignalSL={NO_DCA_IF_SIGNAL_SL}")
     print(f"Entry: Buffer {ENTRY_TRIGGER_BUFFER_PCT}% | Expire {ENTRY_EXPIRATION_MIN} min" + (f" + Preis±{ENTRY_EXPIRATION_PRICE_PCT}%" if ENTRY_EXPIRATION_PRICE_PCT>0 else ""))
     if COOLDOWN_SECONDS > 0:
         print(f"Cooldown: {COOLDOWN_SECONDS}s")
@@ -506,11 +528,14 @@ def main():
                     if raw:
                         sig = parse_signal_from_text(raw)
                         if sig:
+                            jobs = []
                             p1 = build_altrady_open_payload(sig, ALTRADY_EXCHANGE, ALTRADY_API_KEY, ALTRADY_API_SECRET)
-                            jobs = [(ALTRADY_WEBHOOK_URL, p1)]
+                            jobs.append((ALTRADY_WEBHOOK_URL, p1))
+
                             if ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2:
                                 p2 = build_altrady_open_payload(sig, ALTRADY_EXCHANGE_2, ALTRADY_API_KEY_2, ALTRADY_API_SECRET_2)
                                 jobs.append((ALTRADY_WEBHOOK_URL_2, p2))
+
                             post_to_all_webhooks(jobs)
                             last_trade_ts = time.time()
                             state["last_trade_ts"] = last_trade_ts
