@@ -175,7 +175,13 @@ def clean_markdown(s: str) -> str:
     return s.strip()
 
 def to_price(s: str) -> float:
-    return float(s.replace(",", ""))
+    s = s.strip()
+    # Komma als Dezimalpunkt interpretieren, wenn kein Punkt vorhanden
+    if ',' in s and '.' not in s:
+        s = s.replace(',', '.')
+    else:
+        s = s.replace(',', '')  # tausendertrenner entfernen
+    return float(s)
 
 def message_text(m: dict) -> str:
     parts = []
@@ -205,7 +211,7 @@ PAIR_LINE_OLD   = re.compile(r"(^|\n)\s*([A-Z0-9]+)\s+(LONG|SHORT)\s+Signal\s*(\
 HDR_SLASH_PAIR  = re.compile(r"([A-Z0-9]+)\s*/\s*[A-Z0-9]+\b.*\b(LONG|SHORT)\b", re.I)
 HDR_COIN_DIR    = re.compile(r"Coin\s*:\s*([A-Z0-9]+).*?Direction\s*:\s*(LONG|SHORT)", re.I | re.S)
 
-# NEW: BUY/SELL + Entry ohne Doppelpunkt
+# BUY/SELL + Entry ohne Doppelpunkt (AO-Stil)
 BUY_SELL_PAIR   = re.compile(r"\b(BUY|SELL)\s+([A-Z0-9]+?)(?:/USDT|USDT)\b", re.I)
 ENTRY_DOLLAR    = re.compile(r"\bEntry\s*\$?\s*"+NUM, re.I)
 
@@ -276,18 +282,18 @@ def backfill_dcas_if_missing(side: str, entry: float, dcas: list) -> list:
     d1, d2, d3 = dcas
     if d1 is None:
         d1 = entry * (1 + DCA1_DIST_PCT/100.0) if side=="short" else entry * (1 - DCA1_DIST_PCT/100.0)
-    if d2 is None:
-        d2 = entry * (1 + DCA2_DIST_PCT/100.0) if side=="short" else entry * (1 - DCA2_DIST_PCT/100.0)
-    if d3 is None:
-        d3 = entry * (1 + DCA3_DIST_PCT/100.0) if side=="short" else entry * (1 - DCA3_DIST_PCT/100.0)
+    # Wir nutzen nur DCA1 – DCA2/DCA3 bleiben bewusst wie geliefert (None erlaubt)
     return [d1, d2, d3]
 
-def plausible(side: str, entry: float, tps: list, d1: float, d2: float, d3: float) -> bool:
-    tp_ok = all(tp is None or (tp>entry if side=="long" else tp<entry) for tp in tps if tp is not None)
-    if side == "long":
-        return tp_ok and d1<entry and d2<entry and d3<entry
-    else:
-        return tp_ok and d1>entry and d2>entry and d3>entry
+def plausible(side: str, entry: float, tps: list, d1: Optional[float]) -> bool:
+    # TPs müssen auf richtiger Seite sein
+    tp_ok = all(tp is None or (tp > entry if side == "long" else tp < entry) for tp in tps if tp is not None)
+    if not tp_ok:
+        return False
+    # Nur DCA1 logik prüfen, weil wir nur DCA1 verwenden
+    if d1 is None:
+        return True
+    return (d1 < entry) if side == "long" else (d1 > entry)
 
 def _sl_plausible(side: str, entry: float, sl: float) -> bool:
     if sl is None:
@@ -309,7 +315,7 @@ def parse_signal_from_text(txt: str):
 
     d1, d2, d3 = backfill_dcas_if_missing(side, entry, dcas)
 
-    if not plausible(side, entry, tps, d1, d2, d3):
+    if not plausible(side, entry, tps, d1):
         return None
 
     if sl_price is not None and not _sl_plausible(side, entry, sl_price) and not ALLOW_INVERTED_SIGNAL_SL:
@@ -318,7 +324,7 @@ def parse_signal_from_text(txt: str):
     return {
         "base": base, "side": side, "entry": entry,
         "tp1": tps[0], "tp2": tps[1], "tp3": tps[2], "tp4": tps[3], "tp5": tps[4],
-        "dca1": d1, "dca2": d2, "dca3": d3,
+        "dca1": d1, "dca2": None, "dca3": None,
         "sl_price": sl_price
     }
 
@@ -328,11 +334,11 @@ def parse_signal_from_text(txt: str):
 def _percent_from_entry(entry: float, target: float) -> float:
     return (target / entry - 1.0) * 100.0
 
-def _compute_stop_percentage(entry: float, d1: float, d2: float) -> float:
+def _compute_stop_percentage(entry: float, d1: Optional[float], d2: Optional[float]) -> float:
     mode = BASE_STOP_MODE
     if mode == "FIXED":
         return float(STOP_FIXED_PERCENTAGE)
-    anchor_price = d1
+    anchor_price = d1 if d1 is not None else entry
     if mode == "DCA2" and d2 is not None:
         anchor_price = d2
     anchor_dist = abs((anchor_price - entry) / entry) * 100.0
@@ -385,16 +391,11 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
                 "trailing_distance": RUNNER_TRAILING_DIST
             })
 
-    # DCAs (deaktivieren, wenn expliziter SL + Flag gesetzt)
+    # DCAs (nur DCA1; deaktivieren, wenn expliziter SL + Flag gesetzt)
     dca_orders = []
     use_dcas = not (RESPECT_SIGNAL_SL and sl_price is not None and NO_DCA_IF_SIGNAL_SL)
-    if use_dcas:
-        if DCA1_QTY_PCT > 0 and d1 is not None:
-            dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
-        if DCA2_QTY_PCT > 0 and d2 is not None:
-            dca_orders.append({"price": d2, "quantity_percentage": DCA2_QTY_PCT})
-        if DCA3_QTY_PCT > 0 and d3 is not None:
-            dca_orders.append({"price": d3, "quantity_percentage": DCA3_QTY_PCT})
+    if use_dcas and DCA1_QTY_PCT > 0 and d1 is not None:
+        dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
 
     payload = {
         "api_key": api_key,
@@ -426,7 +427,7 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     if TEST_MODE:
         payload["test"] = True
 
-    # Kurz-Log
+    # Kurz-Log (keine Backslashes/escapes → Railway-safe)
     print(f"\n📊 {base} {side.upper()}  |  {symbol}  |  Entry {entry}")
     print(f"   Trigger @ {trigger_price:.6f}  |  Expire in {ENTRY_EXPIRATION_MIN} min" + (f" oder Preis {expire_price:.6f}" if expire_price else ""))
     print(f"   SL-Modus: {'SignalSL' if (RESPECT_SIGNAL_SL and sl_price is not None) else BASE_STOP_MODE}  → {stop_percentage:.2f}% relativ zum Entry")
