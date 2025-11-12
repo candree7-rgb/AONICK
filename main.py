@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, re, sys, time, json, traceback, html, random
+import os, re, sys, time, json, html, random
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -47,9 +47,6 @@ RUNNER_TP_MULTIPLIER = float(os.getenv("RUNNER_TP_MULTIPLIER", "1.5"))
 USE_RUNNER_AFTER_TP5 = os.getenv("USE_RUNNER_AFTER_TP5", "true").lower() == "true"
 
 # ======= Stop-Loss Modus (Fallback) =======
-# DCA1 (Default): SL = Distanz Entry->DCA1 + SL_BUFFER_PCT
-# DCA2:            SL = Distanz Entry->DCA2 + SL_BUFFER_PCT
-# FIXED:           SL = STOP_FIXED_PERCENTAGE (direkt, in %)
 STOP_PROTECTION_TYPE   = os.getenv("STOP_PROTECTION_TYPE", "FOLLOW_TAKE_PROFIT").strip().upper()
 BASE_STOP_MODE         = os.getenv("BASE_STOP_MODE", "DCA1").strip().upper()  # DCA1|DCA2|FIXED
 SL_BUFFER_PCT          = float(os.getenv("SL_BUFFER_PCT", "4.0"))
@@ -208,6 +205,10 @@ PAIR_LINE_OLD   = re.compile(r"(^|\n)\s*([A-Z0-9]+)\s+(LONG|SHORT)\s+Signal\s*(\
 HDR_SLASH_PAIR  = re.compile(r"([A-Z0-9]+)\s*/\s*[A-Z0-9]+\b.*\b(LONG|SHORT)\b", re.I)
 HDR_COIN_DIR    = re.compile(r"Coin\s*:\s*([A-Z0-9]+).*?Direction\s*:\s*(LONG|SHORT)", re.I | re.S)
 
+# NEW: BUY/SELL + Entry ohne Doppelpunkt
+BUY_SELL_PAIR   = re.compile(r"\b(BUY|SELL)\s+([A-Z0-9]+?)(?:/USDT|USDT)\b", re.I)
+ENTRY_DOLLAR    = re.compile(r"\bEntry\s*\$?\s*"+NUM, re.I)
+
 ENTER_ON_TRIGGER = re.compile(r"Enter\s+on\s+Trigger\s*:\s*\$?\s*"+NUM, re.I)
 ENTRY_COLON      = re.compile(r"\bEntry\s*:\s*\$?\s*"+NUM, re.I)
 ENTRY_SECTION    = re.compile(r"\bENTRY\b\s*\n\s*\$?\s*"+NUM, re.I)
@@ -225,6 +226,14 @@ DCA3_LINE = re.compile(r"\bDCA\s*#?\s*3\s*:\s*\$?\s*"+NUM, re.I)
 SL_LINE   = re.compile(r"\bSL\s*:\s*\$?\s*"+NUM, re.I)
 
 def find_base_side(txt: str):
+    # 1) BUY/SELL UNIUSDT → (UNI, long/short)
+    mb = BUY_SELL_PAIR.search(txt)
+    if mb:
+        side = "long" if mb.group(1).upper() == "BUY" else "short"
+        base = mb.group(2).upper()
+        return base, side
+
+    # 2) Alt-Header-Varianten
     mh = HDR_SLASH_PAIR.search(txt)
     if mh:
         return mh.group(1).upper(), ("long" if mh.group(2).upper()=="LONG" else "short")
@@ -237,6 +246,11 @@ def find_base_side(txt: str):
     return None, None
 
 def find_entry(txt: str) -> Optional[float]:
+    # "Entry $8.431" (ohne Doppelpunkt)
+    m = ENTRY_DOLLAR.search(txt)
+    if m:
+        return to_price(m.group(1))
+    # bestehende Varianten
     for rx in (ENTER_ON_TRIGGER, ENTRY_COLON, ENTRY_SECTION):
         m = rx.search(txt)
         if m:
@@ -419,7 +433,7 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     if runner_pct is not None:
         print(f"   Runner% ≈ {runner_pct:.6f}  |  Trail {RUNNER_TRAILING_DIST:.2f}%")
     if dca_orders:
-        dca_str = ", ".join([f"{o['quantity_percentage']}%@{o['price']:.6f}" for o in dca_orders])
+        dca_str = ", ".join([f\"{o['quantity_percentage']}%@{o['price']:.6f}\" for o in dca_orders])
     else:
         dca_str = "–"
     print("   DCAs: " + dca_str)
