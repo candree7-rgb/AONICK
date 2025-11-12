@@ -433,7 +433,7 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     if runner_pct is not None:
         print(f"   Runner% ≈ {runner_pct:.6f}  |  Trail {RUNNER_TRAILING_DIST:.2f}%")
     if dca_orders:
-        dca_str = ", ".join([f\"{o['quantity_percentage']}%@{o['price']:.6f}\" for o in dca_orders])
+        dca_str = ", ".join([f"{o['quantity_percentage']}%@{o['price']:.6f}" for o in dca_orders])
     else:
         dca_str = "–"
     print("   DCAs: " + dca_str)
