@@ -99,8 +99,17 @@ if not ALTRADY_API_KEY or not ALTRADY_API_SECRET:
     print("❌ API Keys fehlen: ALTRADY_API_KEY, ALTRADY_API_SECRET")
     sys.exit(1)
 
+def _auth_header(token: str) -> str:
+    t = (token or "").strip()
+    if t.lower().startswith(("bot ", "bearer ")):
+        return t
+    scheme = os.getenv("DISCORD_AUTH_SCHEME", "").strip().lower()  # bot|bearer|<leer>
+    if scheme in ("bot", "bearer"):
+        return f"{scheme.title()} {t}"
+    return t  # User-Token roh
+
 HEADERS = {
-    "Authorization": DISCORD_TOKEN,
+    "Authorization": _auth_header(DISCORD_TOKEN),
     "User-Agent": "DiscordToAltrady/2.6-fiveTP-signalSL"
 }
 
