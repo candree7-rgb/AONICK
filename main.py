@@ -20,9 +20,9 @@ CHANNEL_ID    = os.getenv("CHANNEL_ID", "").strip()
 ALTRADY_WEBHOOK_URL   = os.getenv("ALTRADY_WEBHOOK_URL", "").strip()
 ALTRADY_API_KEY       = os.getenv("ALTRADY_API_KEY", "").strip()
 ALTRADY_API_SECRET    = os.getenv("ALTRADY_API_SECRET", "").strip()
-ALTRADY_EXCHANGE      = os.getenv("ALTRADY_EXCHANGE", "BYBIF").strip()   # z.B. BYBIF (= Bybit Futures)
+ALTRADY_EXCHANGE      = os.getenv("ALTRADY_EXCHANGE", "BYBIF").strip()
 
-# Optionaler Webhook #2 (eigene Creds/Exchange)
+# Optionaler Webhook #2
 ALTRADY_WEBHOOK_URL_2 = os.getenv("ALTRADY_WEBHOOK_URL_2", "").strip()
 ALTRADY_API_KEY_2     = os.getenv("ALTRADY_API_KEY_2", "").strip()
 ALTRADY_API_SECRET_2  = os.getenv("ALTRADY_API_SECRET_2", "").strip()
@@ -48,7 +48,7 @@ USE_RUNNER_AFTER_TP5 = os.getenv("USE_RUNNER_AFTER_TP5", "true").lower() == "tru
 
 # ======= Stop-Loss Modus (Fallback) =======
 STOP_PROTECTION_TYPE   = os.getenv("STOP_PROTECTION_TYPE", "FOLLOW_TAKE_PROFIT").strip().upper()
-BASE_STOP_MODE         = os.getenv("BASE_STOP_MODE", "DCA1").strip().upper()  # DCA1|DCA2|FIXED
+BASE_STOP_MODE         = os.getenv("BASE_STOP_MODE", "DCA1").strip().upper()
 SL_BUFFER_PCT          = float(os.getenv("SL_BUFFER_PCT", "4.0"))
 STOP_FIXED_PERCENTAGE  = float(os.getenv("STOP_FIXED_PERCENTAGE", "9.0"))
 
@@ -57,22 +57,22 @@ RESPECT_SIGNAL_SL         = os.getenv("RESPECT_SIGNAL_SL", "true").lower() == "t
 NO_DCA_IF_SIGNAL_SL       = os.getenv("NO_DCA_IF_SIGNAL_SL", "true").lower() == "true"
 ALLOW_INVERTED_SIGNAL_SL  = os.getenv("ALLOW_INVERTED_SIGNAL_SL", "false").lower() == "true"
 
-# DCA Größen (% der Start-Positionsgröße)
-DCA1_QTY_PCT = float(os.getenv("DCA1_QTY_PCT", "150"))  # 1.5x vom Entry-Order-Volumen
+# DCA Größen
+DCA1_QTY_PCT = float(os.getenv("DCA1_QTY_PCT", "150"))
 DCA2_QTY_PCT = float(os.getenv("DCA2_QTY_PCT", "0"))
 DCA3_QTY_PCT = float(os.getenv("DCA3_QTY_PCT", "0"))
 
-# Fallback DCA-Distanzen (vom Entry, in %)
+# Fallback DCA-Distanzen
 DCA1_DIST_PCT = float(os.getenv("DCA1_DIST_PCT", "5"))
 DCA2_DIST_PCT = float(os.getenv("DCA2_DIST_PCT", "10"))
 DCA3_DIST_PCT = float(os.getenv("DCA3_DIST_PCT", "20"))
 
-# Limit-Order Ablauf (Zeit)
+# Limit-Order Ablauf
 ENTRY_EXPIRATION_MIN = int(os.getenv("ENTRY_EXPIRATION_MIN", "180"))
 
 # Entry-Condition
-ENTRY_WAIT_MINUTES         = int(os.getenv("ENTRY_WAIT_MINUTES", "0"))           # 0 = keine Zeit-Bedingung
-ENTRY_TRIGGER_BUFFER_PCT   = float(os.getenv("ENTRY_TRIGGER_BUFFER_PCT", "0.0")) # Trigger-Puffer
+ENTRY_WAIT_MINUTES         = int(os.getenv("ENTRY_WAIT_MINUTES", "0"))
+ENTRY_TRIGGER_BUFFER_PCT   = float(os.getenv("ENTRY_TRIGGER_BUFFER_PCT", "0.0"))
 ENTRY_EXPIRATION_PRICE_PCT = float(os.getenv("ENTRY_EXPIRATION_PRICE_PCT", "0.0"))
 
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
@@ -103,14 +103,14 @@ def _auth_header(token: str) -> str:
     t = (token or "").strip()
     if t.lower().startswith(("bot ", "bearer ")):
         return t
-    scheme = os.getenv("DISCORD_AUTH_SCHEME", "").strip().lower()  # bot|bearer|<leer>
+    scheme = os.getenv("DISCORD_AUTH_SCHEME", "").strip().lower()
     if scheme in ("bot", "bearer"):
         return f"{scheme.title()} {t}"
-    return t  # User-Token roh
+    return t
 
 HEADERS = {
     "Authorization": _auth_header(DISCORD_TOKEN),
-    "User-Agent": "DiscordToAltrady/2.6-fiveTP-signalSL"
+    "User-Agent": "DiscordToAltrady/2.7-AO-Format-Fix"
 }
 
 # =========================
@@ -185,11 +185,10 @@ def clean_markdown(s: str) -> str:
 
 def to_price(s: str) -> float:
     s = s.strip()
-    # Komma als Dezimalpunkt interpretieren, wenn kein Punkt vorhanden
     if ',' in s and '.' not in s:
         s = s.replace(',', '.')
     else:
-        s = s.replace(',', '')  # tausendertrenner entfernen
+        s = s.replace(',', '')
     return float(s)
 
 def message_text(m: dict) -> str:
@@ -214,38 +213,46 @@ def message_text(m: dict) -> str:
     return clean_markdown("\n".join([p for p in parts if p]))
 
 # =========================
-# Signal Parsing
+# Signal Parsing (FIXED)
 # =========================
 PAIR_LINE_OLD   = re.compile(r"(^|\n)\s*([A-Z0-9]+)\s+(LONG|SHORT)\s+Signal\s*(\n|$)", re.I)
 HDR_SLASH_PAIR  = re.compile(r"([A-Z0-9]+)\s*/\s*[A-Z0-9]+\b.*\b(LONG|SHORT)\b", re.I)
 HDR_COIN_DIR    = re.compile(r"Coin\s*:\s*([A-Z0-9]+).*?Direction\s*:\s*(LONG|SHORT)", re.I | re.S)
 
-# BUY/SELL + Entry ohne Doppelpunkt (AO-Stil)
-BUY_SELL_PAIR   = re.compile(r"\b(BUY|SELL)\s+([A-Z0-9]+?)(?:/USDT|USDT)\b", re.I)
-ENTRY_DOLLAR    = re.compile(r"\bEntry\s*\$?\s*"+NUM, re.I)
+# ✅ FIX: BUY/SELL Pattern - flexibler
+BUY_SELL_PAIR   = re.compile(r"\b(BUY|SELL)\s+([A-Z0-9]+?)(?:USDT|/USDT)\b", re.I)
 
+# ✅ FIX: Entry - alle Varianten (mit/ohne $, mit/ohne :)
+ENTRY_DOLLAR    = re.compile(r"\bEntry\s*[:$]?\s*\$?\s*"+NUM, re.I)
 ENTER_ON_TRIGGER = re.compile(r"Enter\s+on\s+Trigger\s*:\s*\$?\s*"+NUM, re.I)
 ENTRY_COLON      = re.compile(r"\bEntry\s*:\s*\$?\s*"+NUM, re.I)
 ENTRY_SECTION    = re.compile(r"\bENTRY\b\s*\n\s*\$?\s*"+NUM, re.I)
 
+# TP-Patterns (bereits korrekt)
 TP1_LINE  = re.compile(r"\bTP\s*1\s*:\s*\$?\s*"+NUM, re.I)
 TP2_LINE  = re.compile(r"\bTP\s*2\s*:\s*\$?\s*"+NUM, re.I)
 TP3_LINE  = re.compile(r"\bTP\s*3\s*:\s*\$?\s*"+NUM, re.I)
 TP4_LINE  = re.compile(r"\bTP\s*4\s*:\s*\$?\s*"+NUM, re.I)
 TP5_LINE  = re.compile(r"\bTP\s*5\s*:\s*\$?\s*"+NUM, re.I)
 
+# DCA-Patterns
 DCA1_LINE = re.compile(r"\bDCA\s*#?\s*1\s*:\s*\$?\s*"+NUM, re.I)
 DCA2_LINE = re.compile(r"\bDCA\s*#?\s*2\s*:\s*\$?\s*"+NUM, re.I)
 DCA3_LINE = re.compile(r"\bDCA\s*#?\s*3\s*:\s*\$?\s*"+NUM, re.I)
 
+# SL-Pattern
 SL_LINE   = re.compile(r"\bSL\s*:\s*\$?\s*"+NUM, re.I)
 
 def find_base_side(txt: str):
-    # 1) BUY/SELL UNIUSDT → (UNI, long/short)
+    """Extrahiert Coin-Symbol und Long/Short."""
+    # 1) BUY/SELL PARTIUSDT → (PARTI, long/short)
     mb = BUY_SELL_PAIR.search(txt)
     if mb:
         side = "long" if mb.group(1).upper() == "BUY" else "short"
         base = mb.group(2).upper()
+        # ✅ FIX: Entferne USDT-Suffix falls vorhanden
+        if base.endswith("USDT"):
+            base = base[:-4]
         return base, side
 
     # 2) Alt-Header-Varianten
@@ -261,11 +268,13 @@ def find_base_side(txt: str):
     return None, None
 
 def find_entry(txt: str) -> Optional[float]:
-    # "Entry $8.431" (ohne Doppelpunkt)
+    """Findet Entry-Preis."""
+    # Prio 1: Entry $X oder Entry: $X
     m = ENTRY_DOLLAR.search(txt)
     if m:
         return to_price(m.group(1))
-    # bestehende Varianten
+    
+    # Prio 2: Andere Varianten
     for rx in (ENTER_ON_TRIGGER, ENTRY_COLON, ENTRY_SECTION):
         m = rx.search(txt)
         if m:
@@ -273,69 +282,121 @@ def find_entry(txt: str) -> Optional[float]:
     return None
 
 def _grab_opt(rx, txt):
+    """Helper: Optionalen Wert extrahieren."""
     m = rx.search(txt)
     return to_price(m.group(1)) if m else None
 
 def find_tp_dca_sl(txt: str):
+    """Extrahiert TPs, DCAs und SL."""
     tps = []
     for rx in (TP1_LINE, TP2_LINE, TP3_LINE, TP4_LINE, TP5_LINE):
-        m = rx.search(txt)
-        tps.append(to_price(m.group(1)) if m else None)
+        val = _grab_opt(rx, txt)
+        tps.append(val)
+    
     d1 = _grab_opt(DCA1_LINE, txt)
     d2 = _grab_opt(DCA2_LINE, txt)
     d3 = _grab_opt(DCA3_LINE, txt)
     sl = _grab_opt(SL_LINE, txt)
+    
     return tps, [d1, d2, d3], sl
 
 def backfill_dcas_if_missing(side: str, entry: float, dcas: list) -> list:
+    """Berechnet fehlende DCAs."""
     d1, d2, d3 = dcas
     if d1 is None:
         d1 = entry * (1 + DCA1_DIST_PCT/100.0) if side=="short" else entry * (1 - DCA1_DIST_PCT/100.0)
-    # Wir nutzen nur DCA1 – DCA2/DCA3 bleiben bewusst wie geliefert (None erlaubt)
     return [d1, d2, d3]
 
 def plausible(side: str, entry: float, tps: list, d1: Optional[float]) -> bool:
-    # TPs müssen auf richtiger Seite sein
-    tp_ok = all(tp is None or (tp > entry if side == "long" else tp < entry) for tp in tps if tp is not None)
-    if not tp_ok:
-        return False
-    # Nur DCA1 logik prüfen, weil wir nur DCA1 verwenden
+    """Prüft ob TPs und DCA1 logisch sind."""
+    # TPs prüfen
+    for i, tp in enumerate(tps, 1):
+        if tp is None:
+            continue
+        if side == "long" and tp <= entry:
+            print(f"[PLAUSIBILITY] ❌ TP{i} {tp} ist <= Entry {entry} bei LONG")
+            return False
+        if side == "short" and tp >= entry:
+            print(f"[PLAUSIBILITY] ❌ TP{i} {tp} ist >= Entry {entry} bei SHORT")
+            return False
+    
+    # DCA1-Check (tolerant)
     if d1 is None:
         return True
-    return (d1 < entry) if side == "long" else (d1 > entry)
+    
+    if side == "long" and d1 >= entry:
+        print(f"[PLAUSIBILITY] ⚠️ DCA1 {d1} ist >= Entry {entry} bei LONG → Ignoriere DCA1")
+        return True
+    if side == "short" and d1 <= entry:
+        print(f"[PLAUSIBILITY] ⚠️ DCA1 {d1} ist <= Entry {entry} bei SHORT → Ignoriere DCA1")
+        return True
+    
+    return True
 
 def _sl_plausible(side: str, entry: float, sl: float) -> bool:
+    """Prüft ob SL logisch ist."""
     if sl is None:
         return True
-    return (sl < entry) if side == "long" else (sl > entry)
+    is_valid = (sl < entry) if side == "long" else (sl > entry)
+    if not is_valid:
+        print(f"[SL-CHECK] ⚠️ SL {sl} ist auf falscher Seite bei {side.upper()} (Entry {entry})")
+    return is_valid
 
 def parse_signal_from_text(txt: str):
+    """Hauptfunktion: Parst Signal aus Text."""
+    
+    # Schritt 1: Coin + Richtung
     base, side = find_base_side(txt)
     if not base or not side:
+        print(f"[PARSE] ❌ Kein Base/Side gefunden")
         return None
+    
+    # Schritt 2: Entry
     entry = find_entry(txt)
     if entry is None:
+        print(f"[PARSE] ❌ Kein Entry gefunden für {base} {side.upper()}")
         return None
 
+    # Schritt 3: TPs, DCAs, SL
     tps, dcas, sl_price = find_tp_dca_sl(txt)
-    # Mindestens TP1-TP3 müssen existieren
+    
+    # Min. TP1-3 nötig
     if any(tp is None for tp in tps[:3]):
+        print(f"[PARSE] ❌ TPs unvollständig (brauche min. TP1-3): {tps[:3]}")
         return None
 
+    # Schritt 4: DCA-Backfill
     d1, d2, d3 = backfill_dcas_if_missing(side, entry, dcas)
 
+    # Schritt 5: Plausibilität
     if not plausible(side, entry, tps, d1):
+        print(f"[PARSE] ❌ Plausibilitäts-Check fehlgeschlagen")
         return None
 
-    if sl_price is not None and not _sl_plausible(side, entry, sl_price) and not ALLOW_INVERTED_SIGNAL_SL:
-        sl_price = None  # unlogischen SL ignorieren
+    # Schritt 6: SL-Check
+    if sl_price is not None and not _sl_plausible(side, entry, sl_price):
+        if not ALLOW_INVERTED_SIGNAL_SL:
+            print(f"[PARSE] ⚠️ Invertierter SL ignoriert")
+            sl_price = None
 
-    return {
-        "base": base, "side": side, "entry": entry,
-        "tp1": tps[0], "tp2": tps[1], "tp3": tps[2], "tp4": tps[3], "tp5": tps[4],
-        "dca1": d1, "dca2": None, "dca3": None,
+    # ✅ Signal OK
+    signal = {
+        "base": base, 
+        "side": side, 
+        "entry": entry,
+        "tp1": tps[0], "tp2": tps[1], "tp3": tps[2], 
+        "tp4": tps[3], "tp5": tps[4],
+        "dca1": d1, 
+        "dca2": None,
+        "dca3": None,
         "sl_price": sl_price
     }
+    
+    print(f"[PARSE] ✅ Signal: {base} {side.upper()} @ {entry}")
+    print(f"        TPs: {tps[0]}/{tps[1]}/{tps[2]}/{tps[3] or '-'}/{tps[4] or '-'}")
+    print(f"        DCA1: {d1:.6f}, SL: {sl_price if sl_price else 'Fallback'}")
+    
+    return signal
 
 # =========================
 # Altrady Payload
@@ -361,7 +422,7 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
 
     symbol = f"{exchange}_{QUOTE}_{base}"
 
-    # Stop-Loss (%)
+    # Stop-Loss
     if RESPECT_SIGNAL_SL and sl_price is not None:
         stop_percentage = abs((sl_price - entry) / entry) * 100.0
     else:
@@ -375,7 +436,7 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
         trigger_price = entry * (1.0 + ENTRY_TRIGGER_BUFFER_PCT/100.0)
         expire_price  = entry * (1.0 + ENTRY_EXPIRATION_PRICE_PCT/100.0) if ENTRY_EXPIRATION_PRICE_PCT > 0 else None
 
-    # TPs (in % vom Entry, Altrady folgt Avg-Entry nach DCA)
+    # TPs
     def pct_or_none(tp):
         return _percent_from_entry(entry, tp) if tp is not None else None
 
@@ -387,10 +448,10 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
         if pct is not None and split > 0:
             take_profits.append({"price_percentage": float(f"{pct:.6f}"), "position_percentage": split})
 
-    # Runner (optional, ab TP5 – sonst TP5 = Full Close)
+    # Runner
     runner_pct = None
     if USE_RUNNER_AFTER_TP5 and RUNNER_PCT > 0:
-        anchor = tp5 if tp5 is not None else tp3  # Fallback, falls kein TP5 geliefert
+        anchor = tp5 if tp5 is not None else tp3
         if anchor is not None:
             runner_price = anchor * RUNNER_TP_MULTIPLIER if side == "long" else anchor / RUNNER_TP_MULTIPLIER
             runner_pct = _percent_from_entry(entry, runner_price)
@@ -400,11 +461,14 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
                 "trailing_distance": RUNNER_TRAILING_DIST
             })
 
-    # DCAs (nur DCA1; deaktivieren, wenn expliziter SL + Flag gesetzt)
+    # DCAs
     dca_orders = []
     use_dcas = not (RESPECT_SIGNAL_SL and sl_price is not None and NO_DCA_IF_SIGNAL_SL)
     if use_dcas and DCA1_QTY_PCT > 0 and d1 is not None:
-        dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
+        # ✅ FIX: Prüfe nochmal ob DCA1 plausibel ist
+        dca_valid = (d1 < entry) if side == "long" else (d1 > entry)
+        if dca_valid:
+            dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
 
     payload = {
         "api_key": api_key,
@@ -436,10 +500,10 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     if TEST_MODE:
         payload["test"] = True
 
-    # Kurz-Log (keine Backslashes/escapes → Railway-safe)
+    # Log
     print(f"\n📊 {base} {side.upper()}  |  {symbol}  |  Entry {entry}")
     print(f"   Trigger @ {trigger_price:.6f}  |  Expire in {ENTRY_EXPIRATION_MIN} min" + (f" oder Preis {expire_price:.6f}" if expire_price else ""))
-    print(f"   SL-Modus: {'SignalSL' if (RESPECT_SIGNAL_SL and sl_price is not None) else BASE_STOP_MODE}  → {stop_percentage:.2f}% relativ zum Entry")
+    print(f"   SL-Modus: {'SignalSL' if (RESPECT_SIGNAL_SL and sl_price is not None) else BASE_STOP_MODE}  → {stop_percentage:.2f}%")
     if runner_pct is not None:
         print(f"   Runner% ≈ {runner_pct:.6f}  |  Trail {RUNNER_TRAILING_DIST:.2f}%")
     if dca_orders:
@@ -450,7 +514,7 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     return payload
 
 # =========================
-# HTTP (pro Webhook)
+# HTTP
 # =========================
 def _post_one(url: str, payload: dict):
     print(f"   📤 Sende an {url} ...")
@@ -468,7 +532,7 @@ def _post_one(url: str, payload: dict):
                 continue
 
             if r.status_code == 204:
-                print("   ✅ Erfolg! Pending order angelegt (wartet auf Trigger).")
+                print("   ✅ Erfolg! Pending order angelegt.")
                 return r
 
             r.raise_for_status()
@@ -476,7 +540,7 @@ def _post_one(url: str, payload: dict):
             return r
         except Exception as e:
             if attempt == 2:
-                print(f"   ❌ Fehler bei {url}: {e}")
+                print(f"   ❌ Fehler: {e}")
                 raise
             time.sleep(1.5 * (attempt + 1))
 
@@ -485,99 +549,4 @@ def post_to_all_webhooks(payloads_and_urls: List[Tuple[str, dict]]):
     for i, (url, payload) in enumerate(payloads_and_urls, 1):
         print(f"→ Webhook #{i} von {len(payloads_and_urls)}")
         try:
-            last_resp = _post_one(url, payload)
-        except Exception as e:
-            print(f"   ⚠️ Weiter mit nächstem Webhook (Fehler: {e})")
-            continue
-    return last_resp
-
-# =========================
-# Main
-# =========================
-def main():
-    print("="*50)
-    print("🚀 Discord → Altrady Bot v2.6 (5 TPs, optional Runner@TP5, Signal-SL Support)")
-    print("="*50)
-    print(f"Exchange #1: {ALTRADY_EXCHANGE} | Leverage: {FIXED_LEVERAGE}x")
-    if ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2:
-        print(f"Exchange #2: {ALTRADY_EXCHANGE_2}")
-    print(f"TP-Splits: {TP1_PCT}/{TP2_PCT}/{TP3_PCT}/{TP4_PCT}/{TP5_PCT}% + Runner {RUNNER_PCT}% (USE_RUNNER_AFTER_TP5={USE_RUNNER_AFTER_TP5})")
-    print(f"DCAs: D1 {DCA1_QTY_PCT}%, D2 {DCA2_QTY_PCT}%, D3 {DCA3_QTY_PCT}%")
-    print(f"Stop: {BASE_STOP_MODE} + Buffer {SL_BUFFER_PCT}%  | FIXED={STOP_FIXED_PERCENTAGE}% | RespectSignalSL={RESPECT_SIGNAL_SL}, NoDCAifSignalSL={NO_DCA_IF_SIGNAL_SL}")
-    print(f"Entry: Buffer {ENTRY_TRIGGER_BUFFER_PCT}% | Expire {ENTRY_EXPIRATION_MIN} min" + (f" + Preis±{ENTRY_EXPIRATION_PRICE_PCT}%" if ENTRY_EXPIRATION_PRICE_PCT>0 else ""))
-    if COOLDOWN_SECONDS > 0:
-        print(f"Cooldown: {COOLDOWN_SECONDS}s")
-    if TEST_MODE:
-        print("⚠️ TEST MODE aktiv")
-
-    active_webhooks = 1 + int(bool(ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2))
-    print(f"Webhooks aktiv: {active_webhooks}")
-    print("-"*50)
-
-    state = load_state()
-    last_id = state.get("last_id")
-    last_trade_ts = float(state.get("last_trade_ts", 0.0))
-
-    # Erststart: baseline auf aktuellste Message setzen (nicht rückwirkend)
-    if last_id is None:
-        try:
-            page = fetch_messages_after(CHANNEL_ID, None, limit=1)
-            if page:
-                last_id = str(page[0]["id"])
-                state["last_id"] = last_id
-                save_state(state)
-        except:
-            pass
-
-    print("👀 Überwache Channel...\n")
-
-    while True:
-        try:
-            msgs = fetch_messages_after(CHANNEL_ID, last_id, limit=DISCORD_FETCH_LIMIT)
-            msgs_sorted = sorted(msgs, key=lambda m: int(m.get("id","0")))
-            max_seen = int(last_id or 0)
-
-            if not msgs_sorted:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Warte auf Signale...")
-            else:
-                for m in msgs_sorted:
-                    mid = int(m.get("id","0"))
-                    raw = message_text(m)
-
-                    # Cooldown: blocke neue Orders kurz nach dem letzten Open
-                    if COOLDOWN_SECONDS > 0 and (time.time() - last_trade_ts) < COOLDOWN_SECONDS:
-                        max_seen = max(max_seen, mid)
-                        continue
-
-                    if raw:
-                        sig = parse_signal_from_text(raw)
-                        if sig:
-                            jobs = []
-                            p1 = build_altrady_open_payload(sig, ALTRADY_EXCHANGE, ALTRADY_API_KEY, ALTRADY_API_SECRET)
-                            jobs.append((ALTRADY_WEBHOOK_URL, p1))
-
-                            if ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2:
-                                p2 = build_altrady_open_payload(sig, ALTRADY_EXCHANGE_2, ALTRADY_API_KEY_2, ALTRADY_API_SECRET_2)
-                                jobs.append((ALTRADY_WEBHOOK_URL_2, p2))
-
-                            post_to_all_webhooks(jobs)
-                            last_trade_ts = time.time()
-                            state["last_trade_ts"] = last_trade_ts
-
-                    max_seen = max(max_seen, mid)
-
-                last_id = str(max_seen)
-                state["last_id"] = last_id
-                save_state(state)
-
-        except KeyboardInterrupt:
-            print("\n👋 Beendet")
-            break
-        except Exception as e:
-            print(f"❌ Fehler: {e}")
-            time.sleep(10)
-        finally:
-            sleep_until_next_tick()
-
-if __name__ == "__main__":
-    main()
+       
