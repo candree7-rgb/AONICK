@@ -514,39 +514,131 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     return payload
 
 # =========================
-# HTTP
+# Main
 # =========================
-def _post_one(url: str, payload: dict):
-    print(f"   📤 Sende an {url} ...")
-    for attempt in range(3):
+def main():
+    print("="*50)
+    print("🚀 Discord → Altrady Bot v2.7 (AO Format Fix)")
+    print("="*50)
+    print(f"Exchange #1: {ALTRADY_EXCHANGE} | Leverage: {FIXED_LEVERAGE}x")
+    if ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2:
+        print(f"Exchange #2: {ALTRADY_EXCHANGE_2}")
+    print(f"TP-Splits: {TP1_PCT}/{TP2_PCT}/{TP3_PCT}/{TP4_PCT}/{TP5_PCT}% + Runner {RUNNER_PCT}%")
+    print(f"DCAs: D1 {DCA1_QTY_PCT}%")
+    print(f"Stop: {BASE_STOP_MODE} + Buffer {SL_BUFFER_PCT}% | RespectSignalSL={RESPECT_SIGNAL_SL}")
+    if COOLDOWN_SECONDS > 0:
+        print(f"Cooldown: {COOLDOWN_SECONDS}s")
+    if TEST_MODE:
+        print("⚠️ TEST MODE")
+
+    active_webhooks = 1 + int(bool(ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2))
+    print(f"Webhooks aktiv: {active_webhooks}")
+    print("-"*50)
+
+    state = load_state()
+    last_id = state.get("last_id")
+    last_trade_ts = float(state.get("last_trade_ts", 0.0))
+
+    # Baseline setzen
+    if last_id is None:
         try:
-            r = requests.post(url, json=payload, timeout=20)
-            if r.status_code == 429:
-                delay = 2.0
-                try:
-                    if r.headers.get("Content-Type","").startswith("application/json"):
-                        delay = float(r.json().get("retry_after", 2.0))
-                except:
-                    pass
-                time.sleep(delay + 0.25)
-                continue
+            page = fetch_messages_after(CHANNEL_ID, None, limit=1)
+            if page:
+                last_id = str(page[0]["id"])
+                state["last_id"] = last_id
+                save_state(state)
+        except:
+            pass
 
-            if r.status_code == 204:
-                print("   ✅ Erfolg! Pending order angelegt.")
-                return r
+    # ✅ TEST-SIGNAL (optional)
+    if os.getenv("TEST_PARSE", "false").lower() == "true":
+        test_msg = """@Ryaan Trade 📊 NEW SIGNAL • PARTI • Entry $0.10165
 
-            r.raise_for_status()
-            print("   ✅ Erfolg!")
-            return r
+SELL PARTIUSDT Entry: CMP 25x LEVERAGE
+
+✅ Final: 0.10158 | P&L: +105.02%
+
+SL: 0.10165 ✅ Moved to BE
+
+TPs:
+✅ TP1: 0.0983972 HIT (+80.00%)
+🎯 TP2: 0.0951444 → NEXT
+⏳ TP3: 0.093518 Pending
+⏳ TP4: 0.085386 Pending
+⏳ TP5: 0.069122 Pending"""
+        
+        print("\n" + "="*50)
+        print("🧪 TEST-MODUS: Parse Signal")
+        print("="*50)
+        sig = parse_signal_from_text(test_msg)
+        if sig:
+            print("\n✅ TEST BESTANDEN!")
+            print(json.dumps(sig, indent=2))
+        else:
+            print("\n❌ TEST FEHLGESCHLAGEN!")
+        print("="*50 + "\n")
+
+    print("👀 Überwache Channel...\n")
+
+    while True:
+        try:
+            msgs = fetch_messages_after(CHANNEL_ID, last_id, limit=DISCORD_FETCH_LIMIT)
+            msgs_sorted = sorted(msgs, key=lambda m: int(m.get("id","0")))
+            max_seen = int(last_id or 0)
+
+            # ✅ DEBUG-LOG
+            if msgs_sorted:
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 📬 {len(msgs_sorted)} neue Message(s)")
+                for i, m in enumerate(msgs_sorted[:2], 1):
+                    raw = message_text(m)
+                    print(f"  Msg #{i} (ID {m.get('id')}): {len(raw)} Zeichen")
+                    if len(raw) > 0:
+                        print(f"    Preview: {raw[:100]}")
+                        if "NEW SIGNAL" in raw or "BUY" in raw or "SELL" in raw:
+                            print(f"    ⚠️ Enthält Signal-Keyword!")
+
+            if not msgs_sorted:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Warte auf Signale...")
+            else:
+                for m in msgs_sorted:
+                    mid = int(m.get("id","0"))
+                    raw = message_text(m)
+
+                    # Cooldown
+                    if COOLDOWN_SECONDS > 0 and (time.time() - last_trade_ts) < COOLDOWN_SECONDS:
+                        max_seen = max(max_seen, mid)
+                        continue
+
+                    if raw:
+                        sig = parse_signal_from_text(raw)
+                        if sig:
+                            jobs = []
+                            p1 = build_altrady_open_payload(sig, ALTRADY_EXCHANGE, ALTRADY_API_KEY, ALTRADY_API_SECRET)
+                            jobs.append((ALTRADY_WEBHOOK_URL, p1))
+
+                            if ALTRADY_WEBHOOK_URL_2 and ALTRADY_API_KEY_2 and ALTRADY_API_SECRET_2 and ALTRADY_EXCHANGE_2:
+                                p2 = build_altrady_open_payload(sig, ALTRADY_EXCHANGE_2, ALTRADY_API_KEY_2, ALTRADY_API_SECRET_2)
+                                jobs.append((ALTRADY_WEBHOOK_URL_2, p2))
+
+                            post_to_all_webhooks(jobs)
+                            last_trade_ts = time.time()
+                            state["last_trade_ts"] = last_trade_ts
+
+                    max_seen = max(max_seen, mid)
+
+                last_id = str(max_seen)
+                state["last_id"] = last_id
+                save_state(state)
+
+        except KeyboardInterrupt:
+            print("\n👋 Beendet")
+            break
         except Exception as e:
-            if attempt == 2:
-                print(f"   ❌ Fehler: {e}")
-                raise
-            time.sleep(1.5 * (attempt + 1))
+            print(f"❌ Fehler: {e}")
+            traceback.print_exc()
+            time.sleep(10)
+        finally:
+            sleep_until_next_tick()
 
-def post_to_all_webhooks(payloads_and_urls: List[Tuple[str, dict]]):
-    last_resp = None
-    for i, (url, payload) in enumerate(payloads_and_urls, 1):
-        print(f"→ Webhook #{i} von {len(payloads_and_urls)}")
-        try:
-       
+if __name__ == "__main__":
+    main()
