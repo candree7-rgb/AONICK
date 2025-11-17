@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, re, sys, time, json, html, random
+import os, re, sys, time, json, html, random, traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -219,16 +219,16 @@ PAIR_LINE_OLD   = re.compile(r"(^|\n)\s*([A-Z0-9]+)\s+(LONG|SHORT)\s+Signal\s*(\
 HDR_SLASH_PAIR  = re.compile(r"([A-Z0-9]+)\s*/\s*[A-Z0-9]+\b.*\b(LONG|SHORT)\b", re.I)
 HDR_COIN_DIR    = re.compile(r"Coin\s*:\s*([A-Z0-9]+).*?Direction\s*:\s*(LONG|SHORT)", re.I | re.S)
 
-# ✅ FIX: BUY/SELL Pattern - flexibler
+# ✅ FIX: BUY/SELL Pattern
 BUY_SELL_PAIR   = re.compile(r"\b(BUY|SELL)\s+([A-Z0-9]+?)(?:USDT|/USDT)\b", re.I)
 
-# ✅ FIX: Entry - alle Varianten (mit/ohne $, mit/ohne :)
+# ✅ FIX: Entry - alle Varianten
 ENTRY_DOLLAR    = re.compile(r"\bEntry\s*[:$]?\s*\$?\s*"+NUM, re.I)
 ENTER_ON_TRIGGER = re.compile(r"Enter\s+on\s+Trigger\s*:\s*\$?\s*"+NUM, re.I)
 ENTRY_COLON      = re.compile(r"\bEntry\s*:\s*\$?\s*"+NUM, re.I)
 ENTRY_SECTION    = re.compile(r"\bENTRY\b\s*\n\s*\$?\s*"+NUM, re.I)
 
-# TP-Patterns (bereits korrekt)
+# TP-Patterns
 TP1_LINE  = re.compile(r"\bTP\s*1\s*:\s*\$?\s*"+NUM, re.I)
 TP2_LINE  = re.compile(r"\bTP\s*2\s*:\s*\$?\s*"+NUM, re.I)
 TP3_LINE  = re.compile(r"\bTP\s*3\s*:\s*\$?\s*"+NUM, re.I)
@@ -244,18 +244,14 @@ DCA3_LINE = re.compile(r"\bDCA\s*#?\s*3\s*:\s*\$?\s*"+NUM, re.I)
 SL_LINE   = re.compile(r"\bSL\s*:\s*\$?\s*"+NUM, re.I)
 
 def find_base_side(txt: str):
-    """Extrahiert Coin-Symbol und Long/Short."""
-    # 1) BUY/SELL PARTIUSDT → (PARTI, long/short)
     mb = BUY_SELL_PAIR.search(txt)
     if mb:
         side = "long" if mb.group(1).upper() == "BUY" else "short"
         base = mb.group(2).upper()
-        # ✅ FIX: Entferne USDT-Suffix falls vorhanden
         if base.endswith("USDT"):
             base = base[:-4]
         return base, side
 
-    # 2) Alt-Header-Varianten
     mh = HDR_SLASH_PAIR.search(txt)
     if mh:
         return mh.group(1).upper(), ("long" if mh.group(2).upper()=="LONG" else "short")
@@ -268,13 +264,10 @@ def find_base_side(txt: str):
     return None, None
 
 def find_entry(txt: str) -> Optional[float]:
-    """Findet Entry-Preis."""
-    # Prio 1: Entry $X oder Entry: $X
     m = ENTRY_DOLLAR.search(txt)
     if m:
         return to_price(m.group(1))
     
-    # Prio 2: Andere Varianten
     for rx in (ENTER_ON_TRIGGER, ENTRY_COLON, ENTRY_SECTION):
         m = rx.search(txt)
         if m:
@@ -282,12 +275,10 @@ def find_entry(txt: str) -> Optional[float]:
     return None
 
 def _grab_opt(rx, txt):
-    """Helper: Optionalen Wert extrahieren."""
     m = rx.search(txt)
     return to_price(m.group(1)) if m else None
 
 def find_tp_dca_sl(txt: str):
-    """Extrahiert TPs, DCAs und SL."""
     tps = []
     for rx in (TP1_LINE, TP2_LINE, TP3_LINE, TP4_LINE, TP5_LINE):
         val = _grab_opt(rx, txt)
@@ -301,15 +292,12 @@ def find_tp_dca_sl(txt: str):
     return tps, [d1, d2, d3], sl
 
 def backfill_dcas_if_missing(side: str, entry: float, dcas: list) -> list:
-    """Berechnet fehlende DCAs."""
     d1, d2, d3 = dcas
     if d1 is None:
         d1 = entry * (1 + DCA1_DIST_PCT/100.0) if side=="short" else entry * (1 - DCA1_DIST_PCT/100.0)
     return [d1, d2, d3]
 
 def plausible(side: str, entry: float, tps: list, d1: Optional[float]) -> bool:
-    """Prüft ob TPs und DCA1 logisch sind."""
-    # TPs prüfen
     for i, tp in enumerate(tps, 1):
         if tp is None:
             continue
@@ -320,7 +308,6 @@ def plausible(side: str, entry: float, tps: list, d1: Optional[float]) -> bool:
             print(f"[PLAUSIBILITY] ❌ TP{i} {tp} ist >= Entry {entry} bei SHORT")
             return False
     
-    # DCA1-Check (tolerant)
     if d1 is None:
         return True
     
@@ -334,7 +321,6 @@ def plausible(side: str, entry: float, tps: list, d1: Optional[float]) -> bool:
     return True
 
 def _sl_plausible(side: str, entry: float, sl: float) -> bool:
-    """Prüft ob SL logisch ist."""
     if sl is None:
         return True
     is_valid = (sl < entry) if side == "long" else (sl > entry)
@@ -343,43 +329,28 @@ def _sl_plausible(side: str, entry: float, sl: float) -> bool:
     return is_valid
 
 def parse_signal_from_text(txt: str):
-    """Hauptfunktion: Parst Signal aus Text."""
-    
-    # Schritt 1: Coin + Richtung
     base, side = find_base_side(txt)
     if not base or not side:
-        print(f"[PARSE] ❌ Kein Base/Side gefunden")
         return None
     
-    # Schritt 2: Entry
     entry = find_entry(txt)
     if entry is None:
-        print(f"[PARSE] ❌ Kein Entry gefunden für {base} {side.upper()}")
         return None
 
-    # Schritt 3: TPs, DCAs, SL
     tps, dcas, sl_price = find_tp_dca_sl(txt)
     
-    # Min. TP1-3 nötig
     if any(tp is None for tp in tps[:3]):
-        print(f"[PARSE] ❌ TPs unvollständig (brauche min. TP1-3): {tps[:3]}")
         return None
 
-    # Schritt 4: DCA-Backfill
     d1, d2, d3 = backfill_dcas_if_missing(side, entry, dcas)
 
-    # Schritt 5: Plausibilität
     if not plausible(side, entry, tps, d1):
-        print(f"[PARSE] ❌ Plausibilitäts-Check fehlgeschlagen")
         return None
 
-    # Schritt 6: SL-Check
     if sl_price is not None and not _sl_plausible(side, entry, sl_price):
         if not ALLOW_INVERTED_SIGNAL_SL:
-            print(f"[PARSE] ⚠️ Invertierter SL ignoriert")
             sl_price = None
 
-    # ✅ Signal OK
     signal = {
         "base": base, 
         "side": side, 
@@ -422,13 +393,11 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
 
     symbol = f"{exchange}_{QUOTE}_{base}"
 
-    # Stop-Loss
     if RESPECT_SIGNAL_SL and sl_price is not None:
         stop_percentage = abs((sl_price - entry) / entry) * 100.0
     else:
         stop_percentage = _compute_stop_percentage(entry, d1, d2)
 
-    # Entry-Trigger
     if side == "long":
         trigger_price = entry * (1.0 - ENTRY_TRIGGER_BUFFER_PCT/100.0)
         expire_price  = entry * (1.0 - ENTRY_EXPIRATION_PRICE_PCT/100.0) if ENTRY_EXPIRATION_PRICE_PCT > 0 else None
@@ -436,7 +405,6 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
         trigger_price = entry * (1.0 + ENTRY_TRIGGER_BUFFER_PCT/100.0)
         expire_price  = entry * (1.0 + ENTRY_EXPIRATION_PRICE_PCT/100.0) if ENTRY_EXPIRATION_PRICE_PCT > 0 else None
 
-    # TPs
     def pct_or_none(tp):
         return _percent_from_entry(entry, tp) if tp is not None else None
 
@@ -448,7 +416,6 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
         if pct is not None and split > 0:
             take_profits.append({"price_percentage": float(f"{pct:.6f}"), "position_percentage": split})
 
-    # Runner
     runner_pct = None
     if USE_RUNNER_AFTER_TP5 and RUNNER_PCT > 0:
         anchor = tp5 if tp5 is not None else tp3
@@ -461,11 +428,9 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
                 "trailing_distance": RUNNER_TRAILING_DIST
             })
 
-    # DCAs
     dca_orders = []
     use_dcas = not (RESPECT_SIGNAL_SL and sl_price is not None and NO_DCA_IF_SIGNAL_SL)
     if use_dcas and DCA1_QTY_PCT > 0 and d1 is not None:
-        # ✅ FIX: Prüfe nochmal ob DCA1 plausibel ist
         dca_valid = (d1 < entry) if side == "long" else (d1 > entry)
         if dca_valid:
             dca_orders.append({"price": d1, "quantity_percentage": DCA1_QTY_PCT})
@@ -500,7 +465,6 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
     if TEST_MODE:
         payload["test"] = True
 
-    # Log
     print(f"\n📊 {base} {side.upper()}  |  {symbol}  |  Entry {entry}")
     print(f"   Trigger @ {trigger_price:.6f}  |  Expire in {ENTRY_EXPIRATION_MIN} min" + (f" oder Preis {expire_price:.6f}" if expire_price else ""))
     print(f"   SL-Modus: {'SignalSL' if (RESPECT_SIGNAL_SL and sl_price is not None) else BASE_STOP_MODE}  → {stop_percentage:.2f}%")
@@ -512,6 +476,48 @@ def build_altrady_open_payload(sig: dict, exchange: str, api_key: str, api_secre
         dca_str = "–"
     print("   DCAs: " + dca_str)
     return payload
+
+# =========================
+# HTTP (✅ FEHLTE KOMPLETT!)
+# =========================
+def _post_one(url: str, payload: dict):
+    print(f"   📤 Sende an {url} ...")
+    for attempt in range(3):
+        try:
+            r = requests.post(url, json=payload, timeout=20)
+            if r.status_code == 429:
+                delay = 2.0
+                try:
+                    if r.headers.get("Content-Type","").startswith("application/json"):
+                        delay = float(r.json().get("retry_after", 2.0))
+                except:
+                    pass
+                time.sleep(delay + 0.25)
+                continue
+
+            if r.status_code == 204:
+                print("   ✅ Erfolg! Pending order angelegt.")
+                return r
+
+            r.raise_for_status()
+            print("   ✅ Erfolg!")
+            return r
+        except Exception as e:
+            if attempt == 2:
+                print(f"   ❌ Fehler: {e}")
+                raise
+            time.sleep(1.5 * (attempt + 1))
+
+def post_to_all_webhooks(payloads_and_urls: List[Tuple[str, dict]]):
+    last_resp = None
+    for i, (url, payload) in enumerate(payloads_and_urls, 1):
+        print(f"→ Webhook #{i} von {len(payloads_and_urls)}")
+        try:
+            last_resp = _post_one(url, payload)
+        except Exception as e:
+            print(f"   ⚠️ Weiter (Fehler: {e})")
+            continue
+    return last_resp
 
 # =========================
 # Main
@@ -539,7 +545,6 @@ def main():
     last_id = state.get("last_id")
     last_trade_ts = float(state.get("last_trade_ts", 0.0))
 
-    # Baseline setzen
     if last_id is None:
         try:
             page = fetch_messages_after(CHANNEL_ID, None, limit=1)
@@ -550,34 +555,6 @@ def main():
         except:
             pass
 
-    # ✅ TEST-SIGNAL (optional)
-    if os.getenv("TEST_PARSE", "false").lower() == "true":
-        test_msg = """@Ryaan Trade 📊 NEW SIGNAL • PARTI • Entry $0.10165
-
-SELL PARTIUSDT Entry: CMP 25x LEVERAGE
-
-✅ Final: 0.10158 | P&L: +105.02%
-
-SL: 0.10165 ✅ Moved to BE
-
-TPs:
-✅ TP1: 0.0983972 HIT (+80.00%)
-🎯 TP2: 0.0951444 → NEXT
-⏳ TP3: 0.093518 Pending
-⏳ TP4: 0.085386 Pending
-⏳ TP5: 0.069122 Pending"""
-        
-        print("\n" + "="*50)
-        print("🧪 TEST-MODUS: Parse Signal")
-        print("="*50)
-        sig = parse_signal_from_text(test_msg)
-        if sig:
-            print("\n✅ TEST BESTANDEN!")
-            print(json.dumps(sig, indent=2))
-        else:
-            print("\n❌ TEST FEHLGESCHLAGEN!")
-        print("="*50 + "\n")
-
     print("👀 Überwache Channel...\n")
 
     while True:
@@ -586,14 +563,14 @@ TPs:
             msgs_sorted = sorted(msgs, key=lambda m: int(m.get("id","0")))
             max_seen = int(last_id or 0)
 
-            # ✅ DEBUG-LOG
             if msgs_sorted:
                 print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 📬 {len(msgs_sorted)} neue Message(s)")
                 for i, m in enumerate(msgs_sorted[:2], 1):
                     raw = message_text(m)
                     print(f"  Msg #{i} (ID {m.get('id')}): {len(raw)} Zeichen")
                     if len(raw) > 0:
-                        print(f"    Preview: {raw[:100]}")
+                        preview = raw[:100].replace('\n', ' ')
+                        print(f"    Preview: {preview}")
                         if "NEW SIGNAL" in raw or "BUY" in raw or "SELL" in raw:
                             print(f"    ⚠️ Enthält Signal-Keyword!")
 
@@ -604,7 +581,6 @@ TPs:
                     mid = int(m.get("id","0"))
                     raw = message_text(m)
 
-                    # Cooldown
                     if COOLDOWN_SECONDS > 0 and (time.time() - last_trade_ts) < COOLDOWN_SECONDS:
                         max_seen = max(max_seen, mid)
                         continue
