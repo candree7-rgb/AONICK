@@ -39,6 +39,9 @@ DCA1_QTY_PCT = float(os.getenv("DCA1_QTY_PCT", "150"))
 # Stop-Protektion (z.B. FOLLOW_TAKE_PROFIT / DISABLE / TRAILING etc. laut Altrady)
 STOP_PROTECTION_TYPE = os.getenv("STOP_PROTECTION_TYPE", "FOLLOW_TAKE_PROFIT").strip().upper()
 
+# Expliziter SL-Order-Typ (MARKET vs LIMIT)
+STOP_LOSS_ORDER_TYPE = os.getenv("STOP_LOSS_ORDER_TYPE", "STOP_LOSS_MARKET").strip().upper()
+
 # Limit-Order Ablauf (Zeit)
 ENTRY_EXPIRATION_MIN = int(os.getenv("ENTRY_EXPIRATION_MIN", "180"))
 
