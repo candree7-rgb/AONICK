@@ -342,6 +342,7 @@ def build_altrady_open_payload_ao(sig: dict) -> dict:
         "entry_condition": { "price": float(f"{trigger_price:.10f}") },
         "take_profit": take_profits,
         "stop_loss": {
+            "order_type": STOP_LOSS_ORDER_TYPE,
             "stop_percentage": float(f"{sl_pct:.6f}"),
             "protection_type": STOP_PROTECTION_TYPE
         },
