@@ -1,46 +1,209 @@
 #!/usr/bin/env python3
-import os, re, json, time, requests
+# -*- coding: utf-8 -*-
+import os, re, sys, time, json, random, hashlib, html
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
+import requests
 from dotenv import load_dotenv
 load_dotenv()
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
+# ========================= ENVs =========================
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
+ALTRADY_WEBHOOK_URL = os.getenv("ALTRADY_WEBHOOK_URL", "").strip()
+ALTRADY_API_KEY = os.getenv("ALTRADY_API_KEY", "").strip()
+ALTRADY_API_SECRET = os.getenv("ALTRADY_API_SECRET", "").strip()
+ALTRADY_EXCHANGE = os.getenv("ALTRADY_EXCHANGE", "BYBI").strip().upper()
+QUOTE = os.getenv("QUOTE", "USDT").strip().upper()
 
-HEADERS = {"Authorization": DISCORD_TOKEN}
+LEVERAGE = int(os.getenv("LEVERAGE", "10"))
+TP1_PCT = float(os.getenv("TP1_PCT", "20"))
+TP2_PCT = float(os.getenv("TP2_PCT", "20"))
+TP3_PCT = float(os.getenv("TP3_PCT", "20"))
+TP4_PCT = float(os.getenv("TP4_PCT", "20"))
+TP5_PCT = float(os.getenv("TP5_PCT", "20"))
+DCA1_QTY_PCT = float(os.getenv("DCA1_QTY_PCT", "150"))
 
-def fetch_last_10():
-    url = f"https://discord.com/api/v10/channels/{CHANNEL_ID}/messages?limit=10"
-    r = requests.get(url, headers=HEADERS)
-    r.raise_for_status()
-    return r.json()
+STOP_PROTECTION_TYPE = os.getenv("STOP_PROTECTION_TYPE", "FOLLOW_TAKE_PROFIT").strip().upper()
+STOP_LOSS_ORDER_TYPE = os.getenv("STOP_LOSS_ORDER_TYPE", "STOP_LOSS_MARKET").strip().upper()
+ENTRY_EXPIRATION_MIN = int(os.getenv("ENTRY_EXPIRATION_MIN", "180"))
+ENTRY_WAIT_MINUTES = int(os.getenv("ENTRY_WAIT_MINUTES", "0"))
+ENTRY_TRIGGER_BUFFER_PCT = float(os.getenv("ENTRY_TRIGGER_BUFFER_PCT", "0.0"))
+ENTRY_EXPIRATION_PRICE_PCT = float(os.getenv("ENTRY_EXPIRATION_PRICE_PCT", "0.0"))
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "60"))
+POLL_BASE_SECONDS = int(os.getenv("POLL_BASE_SECONDS", "60"))
+POLL_JITTER_MAX = int(os.getenv("POLL_JITTER_MAX", "10"))
+STATE_FILE = Path("state_ao.json")
 
-def clean(txt):
-    return re.sub(r"[<@&!>]|\*\*|__|\*\*|```|`|_|\*", "", txt).strip()
+ALLOWED_PROVIDERS = {s.strip().lower() for s in os.getenv("ALLOWED_PROVIDERS", "haseeb1111").split(",") if s.strip()}
 
-print("Lese letzte 10 Nachrichten aus deinem Channel...\n")
-msgs = fetch_last_10()
+# ========================= Startup =========================
+if not all([DISCORD_TOKEN, CHANNEL_ID, ALTRADY_WEBHOOK_URL, ALTRADY_API_KEY, ALTRADY_API_SECRET]):
+    print("Fehlende ENVs!")
+    sys.exit(1)
 
-for m in msgs:
-    content = m.get("content", "")
-    author = m["author"]["username"]
-    text = content
-    for emb in m.get("embeds", []):
-        text += " | " + (emb.get("title") or "") + " | " + (emb.get("description") or "")
-        for f in emb.get("fields", []):
-            text += " | " + f.get("name","") + " | " + f.get("value","")
-    text = clean(text)
-    
-    print(f"[{m['id']}] {author}: {text[:200]}{'...' if len(text)>200 else ''}")
-    
-    if "NEW SIGNAL" in text.upper() or "NEW TRADE SIGNAL" in text.upper():
-        print("NEUES SIGNAL GEFUNDEN!")
-        print(f"→ Ganzer Text:\n{text}\n")
-        break
-else:
-    print("\nKEIN 'NEW SIGNAL' in den letzten 10 Nachrichten gefunden.")
-    print("Mögliche Gründe:")
-    print("   • Falscher CHANNEL_ID")
-    print("   • Bot hat keine Rechte im Channel")
-    print("   • Du bist nicht im richtigen Server")
-    print("   • AO Trades APP postet in einen anderen Channel")
+HEADERS = {"Authorization": DISCORD_TOKEN, "User-Agent": "AO-Bot/2025"}
+
+# ========================= State =========================
+def load_state():
+    if STATE_FILE.exists():
+        try: return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except: pass
+    return {"last_id": None, "last_trade_ts": 0.0, "seen_hashes": []}
+
+def save_state(state):
+    tmp = STATE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state), encoding="utf-8")
+    tmp.replace(STATE_FILE)
+
+state = load_state()
+seen_hashes = set(state.get("seen_hashes", []))
+
+# ========================= Discord & Text =========================
+def fetch_messages(after_id: Optional[str] = None):
+    url = f"https://discord.com/api/v10/channels/{CHANNEL_ID}/messages?limit=50"
+    if after_id: url += f"&after={after_id}"
+    for _ in range(3):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code == 429:
+                time.sleep(float(r.json().get("retry_after", 5)) + 1)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except: time.sleep(5)
+    return []
+
+def extract_text(msg):
+    parts = [msg.get("content", "")]
+    for embed in msg.get("embeds", []):
+        parts.extend([embed.get("title",""), embed.get("description","")])
+        for field in embed.get("fields", []):
+            parts.extend([field.get("name",""), field.get("value","")])
+    text = " | ".join(filter(None, parts))
+    text = html.unescape(text)
+    text = re.sub(r"[<@!>&]|\*\*|\*|__|_|`|<.*?>", "", text)
+    return text.strip()
+
+# ========================= Parser (2025 ready!) =========================
+def parse_signal(text: str) -> Optional[dict]:
+    if not re.search(r"NEW SIGNAL|NEW TRADE SIGNAL", text, re.I):
+        return None
+
+    if "haseeb1111" not in text.lower():
+        return None
+
+    m = re.search(r"(LONG|SHORT)\s+SIGNAL\s*[-–—]?\s*([A-Z0-9]+)\s*/\s*([A-Z0-9]+)", text, re.I)
+    if not m: return None
+    side, base, q = m.groups()
+    if q.upper() != QUOTE: return None
+    side = "long" if side.upper() == "LONG" else "short"
+
+    entry = re.search(r"Entry[\s:]*\$?([0-9.,]+)", text, re.I)
+    sl = re.search(r"Stop Loss[\s:]*\$?([0-9.,]+)", text, re.I)
+    if not entry or not sl: return None
+
+    tps = []
+    for i in range(1, 6):
+        tp = re.search(fr"TP{i}[\s:→]*\$?([0-9.,]+)", text, re.I)
+        if tp: tps.append(float(tp.group(1).replace(",", "")))
+    if not tps: return None
+
+    dca1_match = re.search(r"DCA1[\s:]*\$?([0-9.,]+)", text, re.I)
+    dca1 = float(dca1_match.group(1).replace(",", "")) if dca1_match else None
+
+    sig = {
+        "provider": "haseeb1111",
+        "base": base.upper(),
+        "side": side,
+        "entry": float(entry.group(1).replace(",", "")),
+        "tps": tps,
+        "stop_loss": float(sl.group(1).replace(",", "")),
+        "dca1": dca1
+    }
+
+    hash_key = f"{sig['base']}{sig['side']}{sig['entry']}"
+    sig_hash = hashlib.md5(hash_key.encode()).hexdigest()
+    if sig_hash in seen_hashes:
+        return None  # Duplicate
+
+    seen_hashes.add(sig_hash)
+    state["seen_hashes"] = list(seen_hashes)[-500:]
+    return sig
+
+# ========================= Altrady Payload =========================
+def build_payload(sig):
+    entry, sl, side = sig["entry"], sig["stop_loss"], sig["side"]
+    sl_pct = abs((sl / entry - 1) * 100)
+    trigger = entry * (1 - ENTRY_TRIGGER_BUFFER_PCT/100 if side == "long" else 1 + ENTRY_TRIGGER_BUFFER_PCT/100)
+    expire_price = None
+    if ENTRY_EXPIRATION_PRICE_PCT > 0:
+        expire_price = entry * (1 + ENTRY_EXPIRATION_PRICE_PCT/100 if side == "long" else 1 - ENTRY_EXPIRATION_PRICE_PCT/100)
+
+    tp_pcts = [(tp / entry - 1) * 100 for tp in sig["tps"]]
+    take_profits = []
+    for i, pct in enumerate(tp_pcts):
+        pct_val = [TP1_PCT, TP2_PCT, TP3_PCT, TP4_PCT, TP5_PCT][i] if i < 5 else 0
+        if pct_val > 0:
+            take_profits.append({"price_percentage": round(pct, 6), "position_percentage": pct_val})
+
+    payload = {
+        "api_key": ALTRADY_API_KEY,
+        "api_secret": ALTRADY_API_SECRET,
+        "exchange": ALTRADY_EXCHANGE,
+        "action": "open",
+        "symbol": f"{ALTRADY_EXCHANGE}_{QUOTE}_{sig['base']}",
+        "side": side,
+        "order_type": "limit",
+        "signal_price": entry,
+        "leverage": LEVERAGE,
+        "entry_condition": {"price": round(trigger, 10)},
+        "take_profit": take_profits,
+        "stop_loss": {
+            "order_type": STOP_LOSS_ORDER_TYPE,
+            "stop_percentage": round(sl_pct, 6),
+            "protection_type": STOP_PROTECTION_TYPE
+        },
+        "dca_orders": [{"price": sig["dca1"], "quantity_percentage": DCA1_QTY_PCT}] if sig["dca1"] else [],
+        "entry_expiration": {"time": ENTRY_EXPIRATION_MIN}
+    }
+    if expire_price:
+        payload["entry_expiration"]["price"] = round(expire_price, 10)
+    if ENTRY_WAIT_MINUTES > 0:
+        payload["entry_condition"].update({"time": ENTRY_WAIT_MINUTES, "operator": "OR"})
+    if TEST_MODE:
+        payload["test"] = True
+
+    print(f"\nNEUES SIGNAL: {sig['base']} {side.upper()} @ {entry}")
+    print(f"SL: {sl} | TPs: {len(tps)} | DCA1: {sig['dca1'] or '—'}")
+    return payload
+
+# ========================= Main Loop =========================
+print("Discord → Altrady AO Bot 2025 – STARTED")
+last_id = state.get("last_id")
+
+while True:
+    try:
+        msgs = fetch_messages(last_id)
+        if not msgs:
+            print(f"[{datetime.now():%H:%M:%S}] Warte auf Signale...")
+        else:
+            for msg in sorted(msgs, key=lambda x: x["id"]):
+                if int(msg["id"]) <= int(last_id or 0): continue
+                text = extract_text(msg)
+                sig = parse_signal(text)
+                if sig and (time.time() - state.get("last_trade_ts", 0) > COOLDOWN_SECONDS):
+                    payload = build_payload(sig)
+                    requests.post(ALTRADY_WEBHOOK_URL, json=payload, timeout=20)
+                    state["last_trade_ts"] = time.time()
+                last_id = msg["id"]
+
+        state["last_id"] = last_id
+        save_state(state)
+
+    except Exception as e:
+        print("Fehler:", e)
+    finally:
+        time.sleep(POLL_BASE_SECONDS + random.uniform(0, POLL_JITTER_MAX))
