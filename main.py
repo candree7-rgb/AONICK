@@ -36,6 +36,10 @@ COOLDOWN_SECONDS        = int(os.getenv("COOLDOWN_SECONDS", "0"))  # 0 = nur Alt
 POLL_BASE_SECONDS       = int(os.getenv("POLL_BASE_SECONDS", "45"))
 POLL_JITTER_MAX         = int(os.getenv("POLL_JITTER_MAX", "15"))
 
+ORDER_TYPE = os.getenv("ORDER_TYPE", "market").strip().lower()
+if ORDER_TYPE not in ("market", "limit"):
+    ORDER_TYPE = "market"
+
 STATE_FILE              = Path("state_ao.json")
 ALLOWED_PROVIDERS       = {s.strip().lower() for s in os.getenv("ALLOWED_PROVIDERS", "haseeb1111").split(",") if s.strip()}
 
@@ -160,7 +164,7 @@ def build_payload(sig):
     payload = {
         "api_key": ALTRADY_API_KEY, "api_secret": ALTRADY_API_SECRET, "exchange": ALTRADY_EXCHANGE,
         "action": "open", "symbol": f"{ALTRADY_EXCHANGE}_{QUOTE}_{sig['base']}", "side": side,
-        "order_type": "limit", "signal_price": entry, "leverage": LEVERAGE,
+        "order_type": ORDER_TYPE, "signal_price": entry, "leverage": LEVERAGE,
         "entry_condition": {"price": round(trigger, 10)},
         "take_profit": take_profits,
         "stop_loss": {
